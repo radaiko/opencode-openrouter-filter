@@ -10,17 +10,25 @@ interface FakeModel {
   cost?: { input?: number; output?: number };
 }
 
+/**
+ * The host publishes the picker as `all.filter((m) => m.enabled)`, so hiding
+ * means `update(..., (m) => (m.enabled = false))`, not `remove()`. The fake
+ * records the disabled ids and applies the mutation so list() stays truthful.
+ */
 function fakeEditor(
   models: readonly FakeModel[],
   defaultRef?: DefaultModelRef,
-): CatalogEditor & { removed: Array<[string, string]> } {
-  const removed: Array<[string, string]> = [];
+): CatalogEditor & { disabled: Array<[string, string]> } {
+  const state = models.map((m) => ({ ...m, enabled: true }));
+  const disabled: Array<[string, string]> = [];
   return {
-    removed,
-    list: () => models.map((m) => ({ ...m })),
-    get: (providerID, modelID) => models.find((m) => m.providerID === providerID && m.id === modelID),
-    remove: (providerID, modelID) => {
-      removed.push([providerID, modelID]);
+    disabled,
+    list: () => state.map((m) => ({ ...m })),
+    get: (providerID, modelID) => state.find((m) => m.providerID === providerID && m.id === modelID),
+    update: (providerID, modelID, update) => {
+      const hit = state.find((m) => m.providerID === providerID && m.id === modelID);
+      if (hit) update(hit);
+      disabled.push([providerID, modelID]);
     },
     default: { get: () => defaultRef },
   };
@@ -28,7 +36,7 @@ function fakeEditor(
 
 // @req REQ-MCF-05
 describe("applyToEditor", () => {
-  it("removes exactly the models the plan names, with their provider ids", () => {
+  it("disables exactly the models the plan names, with their provider ids", () => {
     const editor = fakeEditor([
       { id: "a/free:free", providerID: "openrouter", cost: { input: 0, output: 0 } },
       { id: "a/paid", providerID: "openrouter", cost: { input: 1, output: 1 } },
@@ -36,11 +44,11 @@ describe("applyToEditor", () => {
     ]);
     const config = loadConfig({ rules: [{ provider: "openrouter", presets: ["free-only"] }] });
     const run = applyToEditor(config, editor);
-    expect(editor.removed).toEqual([["openrouter", "a/paid"]]);
+    expect(editor.disabled).toEqual([["openrouter", "a/paid"]]);
     expect(run.removedCount).toBe(1);
   });
 
-  it("does not remove the catalog default model", () => {
+  it("does not disable the catalog default model", () => {
     const editor = fakeEditor(
       [
         { id: "a/free:free", providerID: "openrouter", cost: { input: 0, output: 0 } },
@@ -51,13 +59,13 @@ describe("applyToEditor", () => {
     );
     const config = loadConfig({ rules: [{ provider: "openrouter", presets: ["free-only"] }] });
     applyToEditor(config, editor);
-    expect(editor.removed).toEqual([["openrouter", "a/other"]]);
+    expect(editor.disabled).toEqual([["openrouter", "a/other"]]);
   });
 
   it("is a no-op on an empty config", () => {
     const editor = fakeEditor([{ id: "x", providerID: "p" }]);
     const run = applyToEditor(loadConfig({}), editor);
-    expect(editor.removed).toEqual([]);
+    expect(editor.disabled).toEqual([]);
     expect(run.removedCount).toBe(0);
   });
 });

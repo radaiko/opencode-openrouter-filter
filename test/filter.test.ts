@@ -132,9 +132,9 @@ describe("applyFilter presets", () => {
         {
           providerID: "openrouter",
           models: [
-            model("a/free-tc", { capabilities: { toolcall: true }, cost: { input: 0, output: 0 } }),
-            model("a/free-notc", { cost: { input: 0, output: 0 } }),
-            model("a/paid-tc", { capabilities: { toolcall: true }, cost: { input: 1, output: 1 } }),
+            model("a/free-tc", { capabilities: { tools: true }, cost: [{ input: 0, output: 0 }] }),
+            model("a/free-notc", { cost: [{ input: 0, output: 0 }] }),
+            model("a/paid-tc", { capabilities: { tools: true }, cost: [{ input: 1, output: 1 }] }),
           ],
         },
       ]),

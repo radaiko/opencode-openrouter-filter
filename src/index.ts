@@ -59,6 +59,9 @@ export function setupPlugin(
     commands.add({
       name: "openrouter-filter",
       description: "Show what the OpenRouter model filter removed and why",
+      // The host's Command.Definition requires a template; this command never
+      // sends a prompt, so an inert placeholder is used.
+      template: "",
       execute: async () => {
         if (config.disabled) {
           logger.info(`[${PLUGIN_ID}] disabled by configuration`);
@@ -69,7 +72,7 @@ export function setupPlugin(
           return;
         }
         for (const [providerID, modelIDs] of lastRun.removals) {
-          logger.info(`[${PLUGIN_ID}] ${providerID}: removed ${modelIDs.length} model(s)`);
+          logger.info(`[${PLUGIN_ID}] ${providerID}: hidden ${modelIDs.length} model(s)`);
         }
         for (const warning of lastRun.warnings) logger.warn(`[${PLUGIN_ID}] ${warning}`);
         if (lastRun.removedCount === 0 && lastRun.warnings.length === 0) {

@@ -21,4 +21,9 @@ build:
 spec-lint:
 	openspec validate --all --strict --no-interactive
 
-check: lint typecheck test build spec-lint
+# Filtering suite against the real embedded OpenCode host (offline, scratch XDG dirs).
+e2e: build
+	mkdir -p /tmp/opencode/e2e-xdg/config/opencode /tmp/opencode/e2e-xdg/data/opencode /tmp/opencode/e2e-xdg/state/opencode
+	XDG_CONFIG_HOME=/tmp/opencode/e2e-xdg/config XDG_DATA_HOME=/tmp/opencode/e2e-xdg/data XDG_STATE_HOME=/tmp/opencode/e2e-xdg/state node test/e2e-filter.mjs
+
+check: lint typecheck test build spec-lint e2e

@@ -43,6 +43,8 @@ function decides(
   warn: (message: string) => void,
   providerID: string,
 ): boolean {
+  // A model another transform already hid needs no work from us.
+  if (model.enabled === false) return true;
   // Every gate is an allowlist; exclude always wins.
   if (rule.exclude.length > 0 && matchAny(rule.exclude, model.id)) return false;
   if (rule.include.length > 0 && !matchAny(rule.include, model.id)) return false;

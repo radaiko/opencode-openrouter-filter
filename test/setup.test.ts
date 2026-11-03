@@ -89,12 +89,12 @@ describe("setupPlugin", () => {
         { id: "a/paid", providerID: "openrouter" },
       ],
       get: () => undefined,
-      remove: () => {},
+      update: () => {},
       default: { get: () => undefined },
     });
     expect(result?.lastRun()?.removedCount).toBe(1);
     await recorded.commandAdds[0]?.execute({ sessionID: "s", prompt: "", delivery: {} });
-    expect(logger.lines.join("\n")).toContain("removed 1 model(s)");
+    expect(logger.lines.join("\n")).toContain("hidden 1 model(s)");
   });
 
   it("a throwing editor is contained: filtering errors become warnings", () => {
@@ -106,7 +106,7 @@ describe("setupPlugin", () => {
         throw new Error("host exploded");
       },
       get: () => undefined,
-      remove: () => {},
+      update: () => {},
       default: { get: () => undefined },
     };
     const { context: ctx2, recorded: rec2 } = fakeContext({
