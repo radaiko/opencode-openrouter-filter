@@ -131,6 +131,43 @@ rules: the default model survives and a provider is never emptied outright.
 } }]
 ```
 
+### Full example
+
+A real `opencode.json` combining the age gate and the routing filter. The
+routing cutoffs themselves live in `providers.openrouter.body.provider`
+(see above) — the plugin reads them from there, so they are not repeated in
+its options:
+
+```jsonc
+{
+  "providers": {
+    "openrouter": {
+      "body": {
+        "provider": {
+          "max_price": { "prompt": 0.5, "completion": 2.5 },
+          "preferred_min_throughput": { "p50": 60, "p90": 30 },
+          "preferred_max_latency": { "p50": 1.5, "p90": 3 }
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      // "opencode-openrouter-filter" once published to npm
+      "package": "opencode-openrouter-filter",
+      "options": {
+        // hide models released more than ~3 months ago (fractional days ok)
+        "rules": [{ "provider": "openrouter", "maxAgeDays": 91.25 }],
+        "routing": {
+          // stats API key; also accepts {env:NAME} and $VAR
+          "apiKey": "{file:~/.config/opencode/openrouter.key}"
+        }
+      }
+    }
+  ]
+}
+```
+
 ### Safety rails
 
 - The catalog's **default model** is never removed unless the rule sets
