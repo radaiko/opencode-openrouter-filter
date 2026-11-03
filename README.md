@@ -35,6 +35,7 @@ Options go on the plugin entry:
             "include": ["*:free"],           // keep only these (any match)
             "exclude": ["google/*"],         // always removed; wins over include
             "presets": ["tool-calling"],     // all must hold, on top of the globs
+            "maxAgeDays": 365,               // hide models released longer ago than this
             "allowEmpty": false,             // let a rule remove every model
             "protectDefault": true           // never hide the catalog default
           }
@@ -64,6 +65,16 @@ substring matches.
 | `active` | `status: "active"` only (hides alpha/beta/deprecated) |
 
 Unstated capability counts as **no**: a preset only keeps what it can confirm.
+
+### Age gate
+
+`maxAgeDays` hides models whose catalog release date (`time.released`, published
+by models.dev) is more than that many days old. Set it per rule, or globally in
+`defaults` — `"defaults": { "maxAgeDays": 365 }` drops every model older than a
+year from every provider. Boundary-exact models stay visible, and models with no
+usable release date (missing, or normalized to `0`) are never hidden by age.
+The usual rails apply: the catalog default survives, and a provider is never
+emptied by the age gate alone.
 
 ### Routing filter (provider settings)
 

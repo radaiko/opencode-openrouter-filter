@@ -21,6 +21,8 @@ export interface ApplyInput {
    * must pass both.
    */
   readonly routingFor?: (providerID: string, model: FilterableModel) => string | undefined;
+  /** Clock injection point for tests; defaults to `Date.now`. */
+  readonly now?: () => number;
 }
 
 export interface FilterRun {
@@ -40,6 +42,7 @@ export function mergeRule(defaults: ValidatedRule | undefined, rule: ValidatedRu
     presets: [...new Set([...defaults.presets, ...rule.presets])] as PresetName[],
     allowEmpty: rule.allowEmpty,
     protectDefault: rule.protectDefault,
+    maxAgeDays: rule.maxAgeDays ?? defaults.maxAgeDays,
   };
 }
 
@@ -48,6 +51,7 @@ function decides(
   rule: ValidatedRule,
   warn: (message: string) => void,
   providerID: string,
+  now: number,
 ): boolean {
   // A model another transform already hid needs no work from us.
   if (model.enabled === false) return true;
@@ -61,6 +65,19 @@ function decides(
       continue;
     }
     if (!predicate(model)) return false;
+  }
+  // Age gate: hide models released more than maxAgeDays ago. A model without
+  // a usable release date is kept — the gate only fires on data it can
+  // positively read. Hosts normalize a missing date to 0, and 0 is also not a
+  // real epoch release date, so non-positive values count as missing.
+  if (rule.maxAgeDays !== undefined) {
+    const released = model.time?.released;
+    if (typeof released === "number" && Number.isFinite(released) && released > 0) {
+      const ageMs = now - released;
+      if (ageMs > rule.maxAgeDays * 86_400_000) {
+        return false;
+      }
+    }
   }
   return true;
 }
@@ -84,6 +101,7 @@ export function applyFilter(config: ValidatedConfig, input: ApplyInput): FilterR
 
   const providers = input.listProviders();
   const defaultRef = input.getDefault();
+  const now = (input.now ?? Date.now)();
   const matchedProviders = new Set<string>();
   const includeUsage = new Map<string, number>();
   for (const rule of [...(config.defaults ? [config.defaults] : []), ...config.rules]) {
@@ -102,7 +120,7 @@ export function applyFilter(config: ValidatedConfig, input: ApplyInput): FilterR
           defaultRef !== undefined &&
           defaultRef.providerID === catalog.providerID &&
           defaultRef.modelID === model.id;
-        const kept = decides(model, rule, (message) => warnings.push(message), catalog.providerID);
+        const kept = decides(model, rule, (message) => warnings.push(message), catalog.providerID, now);
         if (!kept && !(isDefault && rule.protectDefault)) remove.push(model.id);
         if (kept && rule.include.length > 0) {
           for (const pattern of rule.include) {

@@ -32,6 +32,8 @@ export interface FilterableModel {
   /** Already-hidden catalog entries stay hidden; the bridge never re-enables. */
   readonly enabled?: boolean;
   readonly status?: string;
+  /** Catalog timestamps; `released` is epoch milliseconds (models.dev publishes it). */
+  readonly time?: { readonly released?: number };
   readonly cost?: CostEntry | readonly CostEntry[];
   readonly capabilities?: {
     /** V2 `Model.Info`: boolean tool support. */

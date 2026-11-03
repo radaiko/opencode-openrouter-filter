@@ -70,3 +70,28 @@ describe("loadConfig", () => {
     expect(config.rules[0]?.allowEmpty).toBe(true);
   });
 });
+
+// @req REQ-MCF-18
+describe("maxAgeDays validation", () => {
+  it("keeps a positive number of days", () => {
+    const config = loadConfig({ rules: [{ provider: "p", maxAgeDays: 365 }] });
+    expect(config.rules[0]?.maxAgeDays).toBe(365);
+  });
+
+  it("accepts fractional days in the defaults block", () => {
+    const config = loadConfig({ defaults: { maxAgeDays: 0.5 } });
+    expect(config.defaults?.maxAgeDays).toBe(0.5);
+  });
+
+  it("leaves the field undefined when absent", () => {
+    expect(loadConfig({ rules: [{ provider: "p" }] }).rules[0]?.maxAgeDays).toBeUndefined();
+  });
+
+  it("rejects zero, negative and non-numeric values", () => {
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, "365", true, null]) {
+      expect(() => loadConfig({ rules: [{ provider: "p", maxAgeDays: bad }] }), String(bad)).toThrow(
+        ConfigError,
+      );
+    }
+  });
+});

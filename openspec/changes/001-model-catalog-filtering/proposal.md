@@ -19,6 +19,8 @@ New OpenCode V2 plugin `opencode-openrouter-filter`:
 - routing filter mirroring `providers.<id>.body.provider` from the user's own
   OpenCode config: `max_price` (catalog cost), `preferred_min_throughput` and
   `preferred_max_latency` (OpenRouter endpoint percentiles, fetched async)
+- `maxAgeDays` rule option auto-hiding models whose catalog release date is
+  older than the cutoff (unknown dates are kept)
 - `disabled` kill switch and an `openrouter-filter` status command
 
 ## Impact

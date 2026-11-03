@@ -10,6 +10,8 @@ export interface FilterRule {
   exclude?: unknown;
   /** Named capability predicates; every preset must pass. */
   presets?: unknown;
+  /** Hide models whose catalog release date is older than this many days. */
+  maxAgeDays?: unknown;
   /** Allow this rule to remove every model of the provider. Default false. */
   allowEmpty?: unknown;
   /** Keep the catalog default model visible even if the rule would drop it. Default true. */
@@ -31,6 +33,7 @@ export interface ValidatedRule {
   readonly presets: readonly PresetName[];
   readonly allowEmpty: boolean;
   readonly protectDefault: boolean;
+  readonly maxAgeDays: number | undefined;
 }
 
 export interface ValidatedConfig {
@@ -80,6 +83,14 @@ function asBoolean(value: unknown, where: string, fallback: boolean): boolean {
   return value;
 }
 
+function asPositiveNumber(value: unknown, where: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new ConfigError(`${where} must be a positive number`);
+  }
+  return value;
+}
+
 function validateRule(
   rule: FilterRule,
   where: string,
@@ -99,6 +110,7 @@ function validateRule(
     presets: asPresets(rule.presets, `${where}.presets`, warnings) ?? [],
     allowEmpty: asBoolean(rule.allowEmpty, `${where}.allowEmpty`, false),
     protectDefault: asBoolean(rule.protectDefault, `${where}.protectDefault`, true),
+    maxAgeDays: asPositiveNumber(rule.maxAgeDays, `${where}.maxAgeDays`),
   };
 }
 

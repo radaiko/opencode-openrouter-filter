@@ -14,10 +14,12 @@ function model(
 function input(
   providers: readonly ProviderCatalog[],
   defaultRef?: { providerID: string; modelID: string },
+  now?: () => number,
 ): ApplyInput {
   return {
     listProviders: () => providers,
     getDefault: () => defaultRef,
+    ...(now ? { now } : {}),
   };
 }
 
@@ -32,6 +34,7 @@ function rule(partial: Partial<ValidatedRule> & { provider: string }): Validated
     presets: [],
     allowEmpty: false,
     protectDefault: true,
+    maxAgeDays: undefined,
     ...partial,
   };
 }
@@ -263,5 +266,99 @@ describe("applyFilter through the real loader", () => {
       "anthropic/claude-sonnet-4.5",
       "google/gemini-flash-latest",
     ]);
+  });
+});
+
+// @req REQ-MCF-18
+describe("applyFilter maxAgeDays", () => {
+  const NOW = Date.UTC(2026, 10, 3);
+  const DAY = 86_400_000;
+  const now = () => NOW;
+
+  function dated(id: string, released: number | undefined): FilterableModel {
+    return released === undefined ? { id } : { id, time: { released } };
+  }
+
+  const fresh = dated("meta/llama-4-fresh", NOW - 30 * DAY);
+  const stale = dated("meta/llama-3-stale", NOW - 400 * DAY);
+  const boundary = dated("mistral/mixtral-exact", NOW - 365 * DAY);
+  const undated = dated("handwritten/local-one", undefined);
+  const aged: ProviderCatalog = {
+    providerID: "openrouter",
+    models: [fresh, stale, boundary, undated],
+  };
+
+  it("hides models older than the cutoff; keeps fresh, boundary and undated", () => {
+    const run = applyFilter(
+      config({ rules: [rule({ provider: "openrouter", maxAgeDays: 365 })] }),
+      input([aged], undefined, now),
+    );
+    expect(run.removals.get("openrouter")).toEqual(["meta/llama-3-stale"]);
+    expect(run.warnings).toEqual([]);
+  });
+
+  it("keeps models with future or unreadable release dates", () => {
+    const catalog: ProviderCatalog = {
+      providerID: "openrouter",
+      models: [
+        dated("meta/llama-5-preview", NOW + 5 * DAY),
+        dated("meta/corrupt", Number.NaN),
+        dated("meta/infinite", Number.POSITIVE_INFINITY),
+        dated("meta/epoch-zero", 0),
+        dated("meta/before-epoch", -1),
+      ],
+    };
+    const run = applyFilter(
+      config({ rules: [rule({ provider: "openrouter", maxAgeDays: 365 })] }),
+      input([catalog], undefined, now),
+    );
+    expect(run.removals.size).toBe(0);
+  });
+
+  it("applies only to providers matched by the rule", () => {
+    const litellmAged: ProviderCatalog = {
+      providerID: "litellm",
+      models: [dated("local/old", NOW - 500 * DAY), dated("local/new", NOW - 10 * DAY)],
+    };
+    const run = applyFilter(
+      config({ rules: [rule({ provider: "litellm", maxAgeDays: 365 })] }),
+      input([aged, litellmAged], undefined, now),
+    );
+    expect(run.removals.has("openrouter")).toBe(false);
+    expect(run.removals.get("litellm")).toEqual(["local/old"]);
+  });
+
+  it("defaults block applies the age gate to every matched provider", () => {
+    const litellmFresh: ProviderCatalog = {
+      providerID: "litellm",
+      models: [dated("local/new", NOW - 10 * DAY)],
+    };
+    const run = applyFilter(
+      config({ defaults: rule({ provider: "*", maxAgeDays: 365 }) }),
+      input([aged, litellmFresh], undefined, now),
+    );
+    expect(run.removals.get("openrouter")).toEqual(["meta/llama-3-stale"]);
+    expect(run.removals.has("litellm")).toBe(false);
+  });
+
+  it("protects the default model from the age gate", () => {
+    const run = applyFilter(
+      config({ rules: [rule({ provider: "openrouter", maxAgeDays: 365 })] }),
+      input([aged], { providerID: "openrouter", modelID: "meta/llama-3-stale" }, now),
+    );
+    expect(run.removals.has("openrouter")).toBe(false);
+  });
+
+  it("refuses to empty a provider when every model is stale", () => {
+    const allOld: ProviderCatalog = {
+      providerID: "openrouter",
+      models: [dated("meta/llama-2", NOW - 800 * DAY), stale],
+    };
+    const run = applyFilter(
+      config({ rules: [rule({ provider: "openrouter", maxAgeDays: 365 })] }),
+      input([allOld], undefined, now),
+    );
+    expect(run.removals.size).toBe(0);
+    expect(run.warnings.join(" ")).toContain("would remove all 2 models");
   });
 });

@@ -16,3 +16,4 @@
 - [x] 14. Endpoint-stats client with cache and bounded concurrency; async two-phase filter + reload (REQ-MCF-16)
 - [x] 15. Routing pass under the existing protection rails (REQ-MCF-17)
 - [x] 16. Routing unit tests and e2e scenario 14 against a mock endpoints API
+- [x] 17. Age gate: `maxAgeDays` rule option composed with the safety rails; unit tests and e2e scenario 15 (REQ-MCF-18)

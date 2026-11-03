@@ -523,5 +523,40 @@ await check(
   ],
 );
 
+// 15. age gate: defaults.maxAgeDays hides models whose catalog release date
+//     is older than the cutoff. The host normalizes config-seeded models
+//     without time data, so a pre-transform shaper writes time.released into
+//     the catalog drafts — the same pattern as seedCost above. Models without
+//     a release date stay visible.
+await check(
+  "maxAgeDays auto-hides stale models",
+  await (async () => {
+    const DAY = 86_400_000;
+    const stamps = {
+      "free/a:free": Date.now() - 10 * DAY,
+      "free/b:free": Date.now() - 500 * DAY,
+      "paid/c": Date.now() - 400 * DAY,
+      // misc/hidden-d gets no stamp: the host normalizes it to released 0,
+      // which the gate reads as "no date" and keeps
+    };
+    const seedAges = (editor) => {
+      for (const [modelID, released] of Object.entries(stamps)) {
+        editor.update("e2etest", modelID, (model) => {
+          model.time = { ...model.time, released };
+        });
+      }
+    };
+    return withHost({ defaults: { maxAgeDays: 365 } }, {}, async (app) => {
+      return [await ids(app, "e2etest"), await ids(app, "e2etest2")];
+    }, [seedAges]);
+  })(),
+  [
+    // stale free/b:free and paid/c hidden; misc/hidden-d kept (released 0)
+    ["free/a:free", "misc/hidden-d"],
+    // provider without real release dates is untouched
+    ["keepme"],
+  ],
+);
+
 console.log(failures === 0 ? "\nE2E: ALL PASS" : `\nE2E: ${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

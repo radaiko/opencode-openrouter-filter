@@ -463,6 +463,7 @@ describe("applyFilter routing pass", () => {
           presets: [],
           allowEmpty: false,
           protectDefault: true,
+          maxAgeDays: undefined,
         },
       ],
     };

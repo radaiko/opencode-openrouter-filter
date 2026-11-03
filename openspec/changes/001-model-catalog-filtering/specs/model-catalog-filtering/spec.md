@@ -227,3 +227,26 @@ hides combine with rule removals without double counting.
 #### Scenario: default survives routing
 - **WHEN** routing cutoffs reject every model of a provider and one of them is the catalog default
 - **THEN** only the default stays visible and a warning is emitted
+
+### Requirement: REQ-MCF-18 Auto-hide by release date
+Rules and the defaults block SHALL accept a positive numeric `maxAgeDays`
+option that hides models whose catalog `time.released` (epoch milliseconds) is
+more than that many days before the current time. Models without a usable
+release date SHALL be kept. The age gate composes with the other gates of its
+rule and honours the default-model and non-empty-provider rails.
+
+#### Scenario: stale model hidden
+- **WHEN** `maxAgeDays: 365` and a model's `time.released` is 400 days old
+- **THEN** that model is hidden
+
+#### Scenario: unknown release date keeps
+- **WHEN** `maxAgeDays: 365` and a model has no `time.released` or reports 0
+- **THEN** that model stays visible
+
+#### Scenario: boundary stays visible
+- **WHEN** a model was released exactly `maxAgeDays` days before now
+- **THEN** that model stays visible
+
+#### Scenario: invalid option rejected
+- **WHEN** `maxAgeDays` is zero, negative or not a number
+- **THEN** configuration fails with a ConfigError naming the field
