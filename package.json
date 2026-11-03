@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
@@ -16,6 +16,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "prepublishOnly": "npm run check",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test",
@@ -35,13 +36,8 @@
     "type": "git",
     "url": "git+https://github.com/radaiko/opencode-openrouter-filter.git"
   },
-  "peerDependencies": {
-    "@opencode/plugin": ">=2.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@opencode/plugin": {
-      "optional": true
-    }
+  "dependencies": {
+    "@opencode/plugin": "^2.2.5"
   },
   "devDependencies": {
     "@opencode/plugin": "^2.2.5",
