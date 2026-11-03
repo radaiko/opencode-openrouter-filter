@@ -14,8 +14,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Install just
-        run: npm install -g just
+      - name: Install just (task runner from casey/just releases)
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL https://github.com/casey/just/releases/download/1.59.0/just-1.59.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar xz -C "$HOME/.local/bin" just
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: npm ci
       - name: Check (lint, typecheck, tests, build, openspec validate)
         run: just check

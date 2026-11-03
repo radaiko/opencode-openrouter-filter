@@ -19,7 +19,7 @@ build:
 	npm run build
 
 spec-lint:
-	openspec validate --all --strict --no-interactive
+	npx openspec validate --all --strict --no-interactive
 
 # Filtering suite against the real embedded OpenCode host (offline, scratch XDG dirs).
 e2e: build
