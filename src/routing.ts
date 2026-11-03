@@ -320,6 +320,42 @@ export interface RoutingDeps {
   fetchImpl?: typeof fetch;
 }
 
+function readFileFrom(deps: RoutingDeps): (path: string) => string | undefined {
+  return (
+    deps.readFile ??
+    ((path: string): string | undefined => {
+      try {
+        return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+      } catch {
+        return undefined;
+      }
+    })
+  );
+}
+
+/**
+ * Resolve an apiKey written the way OpenCode configs reference secrets:
+ * `{file:~/secrets/openrouter.key}` or `{env:OPENROUTER_API_KEY}`; anything
+ * that does not look like a ref passes through as a literal. A malformed ref
+ * (one that starts like a ref but cannot be parsed) resolves to undefined
+ * rather than being sent as a literal key.
+ */
+export function resolveSecretRef(
+  value: string,
+  readFile: (path: string) => string | undefined,
+  env: Record<string, string | undefined>,
+): string | undefined {
+  const looksLikeRef = /^\{(file|env):/.test(value);
+  const file = /^\{file:(.+)\}$/.exec(value);
+  if (file?.[1]) {
+    const path = file[1].startsWith("~") ? (env.HOME ?? "") + file[1].slice(1) : file[1];
+    return readFile(path)?.trim() || undefined;
+  }
+  const variable = /^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value);
+  if (variable?.[1]) return env[variable[1]] || undefined;
+  return looksLikeRef ? undefined : value;
+}
+
 /**
  * Per-provider cutoffs: config files in ascending priority, then the plugin's
  * own `routing.providers` options on top.
@@ -329,15 +365,7 @@ export function collectRoutingSettings(
   directory: string,
   deps: RoutingDeps = {},
 ): Map<string, RoutingSettings> {
-  const readFile =
-    deps.readFile ??
-    ((path: string): string | undefined => {
-      try {
-        return existsSync(path) ? readFileSync(path, "utf8") : undefined;
-      } catch {
-        return undefined;
-      }
-    });
+  const readFile = readFileFrom(deps);
   const files = routing.configFile
     ? [routing.configFile]
     : discoverConfigFiles(directory, deps.env ?? process.env);
@@ -542,7 +570,15 @@ export function createRoutingState(
   if (!routing || !routing.enabled) return undefined;
   const settingsByProvider = collectRoutingSettings(routing, directory, deps);
   if (settingsByProvider.size === 0) return undefined;
-  const apiKey = routing.apiKey ?? deps.env?.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY;
+  // `{file:...}` / `{env:...}` spellings resolve the same way OpenCode config
+  // references secrets; a missing file or variable falls back to the ambient
+  // OPENROUTER_API_KEY, which keeps the stats path unauthenticated (models
+  // are kept when stats come back null) rather than failing.
+  const env = deps.env ?? process.env;
+  const readFile = readFileFrom(deps);
+  const apiKey = routing.apiKey
+    ? resolveSecretRef(routing.apiKey, readFile, env) ?? env.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY
+    : env.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY;
   const stats = createStatsClient({
     baseUrl: routing.statsBaseUrl,
     ...(apiKey ? { apiKey } : {}),

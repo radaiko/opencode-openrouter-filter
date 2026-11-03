@@ -11,6 +11,7 @@ import {
   parseRoutingBlock,
   perfVerdict,
   priceVerdict,
+  resolveSecretRef,
   stripJsonComments,
   type EndpointPerf,
 } from "../src/routing.js";
@@ -338,6 +339,74 @@ describe("createRoutingState", () => {
   it("ignores providers without settings", () => {
     const routing = state({ providers: { routed: { max_price: { prompt: 1 } } } }, {});
     expect(routing?.verdictFor("other", { id: "x/y", cost: [{ input: 100, output: 100 }] })).toBeUndefined();
+  });
+
+  it("resolves {file:...} and {env:...} apiKey refs against deps", async () => {
+    const headers: Array<Record<string, string>> = [];
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      headers.push((init?.headers ?? {}) as Record<string, string>);
+      return new Response(JSON.stringify({ data: { endpoints: [{ throughput_last_30m: { p50: 100 } }] } }));
+    }) as unknown as typeof fetch;
+    const routing = createRoutingState(
+      {
+        providers: { routed: { preferred_min_throughput: 50 } },
+        statsBaseUrl: "https://stats.invalid/v1",
+        apiKey: "{file:~/secrets/openrouter.key}",
+      },
+      "/project-dir",
+      {
+        readFile: (path) => (path === "/home/tester/secrets/openrouter.key" ? "sk-from-file\n" : undefined),
+        env: { HOME: "/home/tester" },
+        fetchImpl,
+      },
+    );
+    expect(routing).toBeDefined();
+    expect(routing?.verdictFor("routed", { id: "good/one" })).toBeUndefined();
+    await routing?.refresh();
+    expect(headers[0]?.authorization).toBe("Bearer sk-from-file");
+  });
+
+  it("falls back to OPENROUTER_API_KEY when a secret ref points nowhere", async () => {
+    const headers: Array<Record<string, string>> = [];
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      headers.push((init?.headers ?? {}) as Record<string, string>);
+      return new Response(JSON.stringify({ data: { endpoints: [] } }));
+    }) as unknown as typeof fetch;
+    const routing = createRoutingState(
+      {
+        providers: { routed: { preferred_min_throughput: 50 } },
+        statsBaseUrl: "https://stats.invalid/v1",
+        apiKey: "{env:OPENROUTER_TOKEN}",
+      },
+      "/project-dir",
+      { readFile: () => undefined, env: { OPENROUTER_TOKEN: "", OPENROUTER_API_KEY: "sk-ambient" }, fetchImpl },
+    );
+    expect(routing).toBeDefined();
+    expect(routing?.verdictFor("routed", { id: "good/one" })).toBeUndefined();
+    await routing?.refresh();
+    expect(headers[0]?.authorization).toBe("Bearer sk-ambient");
+  });
+});
+
+// @req REQ-MCF-16
+describe("resolveSecretRef", () => {
+  const files: Record<string, string> = { "/keys/or.key": " sk-file \n" };
+  const readFile = (path: string) => files[path];
+
+  it("passes literals through unchanged", () => {
+    expect(resolveSecretRef("sk-or-v1-abc", readFile, {})).toBe("sk-or-v1-abc");
+  });
+
+  it("reads {file:...} refs, expanding ~ via HOME", () => {
+    expect(resolveSecretRef("{file:/keys/or.key}", readFile, {})).toBe("sk-file");
+    expect(resolveSecretRef("{file:~/or.key}", readFile, { HOME: "/keys" })).toBe("sk-file");
+    expect(resolveSecretRef("{file:/keys/missing.key}", readFile, {})).toBeUndefined();
+  });
+
+  it("reads {env:...} refs and treats empty as missing", () => {
+    expect(resolveSecretRef("{env:OR_KEY}", readFile, { OR_KEY: "sk-env" })).toBe("sk-env");
+    expect(resolveSecretRef("{env:OR_KEY}", readFile, { OR_KEY: "" })).toBeUndefined();
+    expect(resolveSecretRef("{env:not-an-identifier}", readFile, {})).toBeUndefined();
   });
 });
 

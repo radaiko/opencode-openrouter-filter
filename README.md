@@ -96,13 +96,15 @@ settings, so the picker matches what you actually get routed to:
 
 Stats come from `GET {statsBaseUrl}/models/{author}/{slug}/endpoints`, the
 same API the OpenRouter site uses. That API returns real percentiles only
-when authenticated, so set `routing.apiKey` (or export `OPENROUTER_API_KEY`);
+when authenticated, so set `routing.apiKey` — a literal, or an OpenCode-style
+secret ref `{file:~/secrets/openrouter.key}` / `{env:OPENROUTER_API_KEY}` —
+or export `OPENROUTER_API_KEY`;
 without a key — or whenever stats are missing or the request fails — models
 are **kept**, never hidden on absent data. Stats are fetched in the
 background after startup (bounded concurrency, cached for `statsTtlMs`), then
-the catalog reloads and re-filters; price-ho models are hidden immediately
-and never fetched. Routing hides obey the same safety rails as rules: the
-default model survives and a provider is never emptied outright.
+the catalog reloads and re-filters; models busted by `max_price` are hidden
+immediately and never fetched. Routing hides obey the same safety rails as
+rules: the default model survives and a provider is never emptied outright.
 
 ```jsonc
 "plugins": [{ "package": "opencode-openrouter-filter", "options": {
@@ -111,7 +113,7 @@ default model survives and a provider is never emptied outright.
     // optional; cutoffs are auto-discovered from your opencode config files
     // "configFile": "/path/to/opencode.json",
     // "providers": { "openrouter": { "max_price": { "prompt": 0.5 } } },
-    "apiKey": "{{ env:OPENROUTER_API_KEY }}",   // optional, for real stats
+    "apiKey": "{file:~/.config/opencode/openrouter.key}", // optional, for real stats
     "statsTtlMs": 300000,                        // optional
     "enabled": true                              // optional kill switch
   }
