@@ -8,6 +8,8 @@
 //   XDG_CONFIG_HOME=... XDG_DATA_HOME=... XDG_STATE_HOME=... node test/e2e-filter.mjs
 // The XDG dirs must point at a scratch location so the developer's own
 // global config, plugins and credentials never load.
+import { createServer } from "node:http";
+
 import { OpenCode } from "@opencode/sdk";
 
 import { setupPlugin } from "../dist/index.js";
@@ -293,6 +295,97 @@ await check(
     return (commands.data ?? []).some((c) => c.name === "openrouter-filter");
   }),
   true,
+);
+
+// 13. on-demand loading: the host pulls its model catalog from the models.dev
+//     source in the background after startup (this is how OpenRouter's catalog
+//     actually arrives). A local server stands in for that source and holds
+//     the response until released, so the first picker read happens while the
+//     catalog is still in flight; once it lands, the catalog rebuild re-runs
+//     the model transforms and the same rules must apply.
+await check(
+  "late-loaded catalog is filtered",
+  await (async () => {
+    const directory = `/tmp/opencode/e2e-host/run-${process.pid}-${dirSeq++}`;
+    // models.dev v2 wire shape: provider record with per-model records.
+    const mkModel = (modelID, price) => ({
+      id: modelID,
+      type: "chat",
+      name: modelID,
+      release_date: "2026-01-01",
+      modalities: { input: ["text"], output: ["text"] },
+      capabilities: { tools: { supported: true }, reasoning: { supported: false } },
+      limit: { context: 100000, output: 4096 },
+      cost: { text: { input: { price }, output: { price: price * 4 } } },
+      api: {
+        "chat-completions": {
+          base_url: "http://127.0.0.1:1/v1",
+          sdk: {
+            aisdk: "@ai-sdk/openai-compatible",
+            opencodeai: "@opencode/ai/providers/openai-compatible",
+          },
+        },
+      },
+    });
+    const catalog = {
+      e2elate: {
+        id: "e2elate",
+        name: "E2E Late",
+        env: ["E2ELATE_API_KEY"],
+        models: { "free/a:free": mkModel("free/a:free", 0), "paid/b": mkModel("paid/b", 3) },
+      },
+    };
+    // Gate the response so the test decides when the "network" delivers.
+    let release;
+    const delivered = new Promise((resolve) => {
+      release = resolve;
+    });
+    const server = createServer((_req, res) => {
+      delivered.then(() => {
+        res.writeHead(200, { "content-type": "application/json", etag: 'W/"e2e-1"' });
+        res.end(JSON.stringify(catalog));
+      });
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const app = await OpenCode.create({
+      plugins: [
+        pluginWith({ rules: [{ provider: "e2elate", include: ["*:free"] }] }),
+      ],
+      config: {
+        directory,
+        content: JSON.stringify({
+          provider: {
+            // Provider declared like the user's openrouter entry: connection
+            // info only, the model list comes from the source on demand.
+            e2elate: {
+              name: "E2E Late",
+              npm: "@ai-sdk/openai-compatible",
+              options: { apiKey: "e2e-key", baseURL: "http://127.0.0.1:1/v1" },
+            },
+          },
+        }),
+        project: false,
+        claude: false,
+      },
+      models: { url: `http://127.0.0.1:${server.address().port}`, fetch: true },
+      events: { persist: false },
+    });
+    try {
+      const before = await ids(app, "e2elate"); // catalog still in flight
+      release();
+      // Wait for the fetch to land and the catalog rebuild to settle.
+      let after = before;
+      for (let i = 0; i < 100 && after.length === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        after = await ids(app, "e2elate");
+      }
+      return [before, after];
+    } finally {
+      await app.close();
+      server.close();
+    }
+  })(),
+  [[], ["free/a:free"]],
 );
 
 console.log(failures === 0 ? "\nE2E: ALL PASS" : `\nE2E: ${failures} FAILURE(S)`);
