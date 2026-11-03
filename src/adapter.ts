@@ -41,7 +41,11 @@ function entryId(model: CatalogEntry): string {
 }
 
 /** Apply the validated config to the editor. Pure with respect to the config. */
-export function applyToEditor(config: ValidatedConfig, editor: CatalogEditor): FilterRun {
+export function applyToEditor(
+  config: ValidatedConfig,
+  editor: CatalogEditor,
+  routingFor?: (providerID: string, model: CatalogEntry) => string | undefined,
+): FilterRun {
   const listProviders = (): ProviderCatalog[] => {
     const grouped = new Map<string, FilterableModel[]>();
     for (const model of editor.list()) {
@@ -53,10 +57,11 @@ export function applyToEditor(config: ValidatedConfig, editor: CatalogEditor): F
     }
     return [...grouped].map(([providerID, models]) => ({ providerID, models }));
   };
-  const run = applyFilter(config, {
+  const baseInput = {
     listProviders,
     getDefault: () => editor.default.get(),
-  });
+  };
+  const run = applyFilter(config, routingFor ? { ...baseInput, routingFor } : baseInput);
   for (const [providerID, modelIDs] of run.removals) {
     for (const modelID of modelIDs) {
       editor.update(providerID, modelID, (model) => {

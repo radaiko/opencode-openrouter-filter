@@ -11,3 +11,8 @@
 - [x] 9. Disabled kill switch (REQ-MCF-12)
 - [x] 10. Host wiring: model.transform, status command, error containment (REQ-MCF-13)
 - [x] 11. Test harness green: `just check`
+- [x] 12. Provider-settings discovery: config-file reading, options override (REQ-MCF-14)
+- [x] 13. Price gate against catalog cost tiers (REQ-MCF-15)
+- [x] 14. Endpoint-stats client with cache and bounded concurrency; async two-phase filter + reload (REQ-MCF-16)
+- [x] 15. Routing pass under the existing protection rails (REQ-MCF-17)
+- [x] 16. Routing unit tests and e2e scenario 14 against a mock endpoints API

@@ -388,5 +388,140 @@ await check(
   [[], ["free/a:free"]],
 );
 
+// 14. routing filter: the plugin reads the user's own OpenCode config
+//     (providers.<id>.body.provider — max_price, preferred_min_throughput,
+//     preferred_max_latency) and hides models that cannot satisfy it. Price
+//     uses the catalog cost; throughput/latency use the OpenRouter endpoints
+//     API, served here by a local mock. Stats arrive asynchronously: first
+//     the price gate acts, then a reload re-filters with the measurements.
+await check(
+  "provider-settings routing filter",
+  await (async () => {
+    const configFile = `/tmp/opencode/e2e-routing-${process.pid}.json`;
+    const { writeFileSync, rmSync } = await import("node:fs");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        // Exactly the shape of the user's live openrouter entry.
+        providers: {
+          e2erouted: {
+            body: {
+              provider: {
+                zdr: true,
+                data_collection: "deny",
+                sort: "price",
+                max_price: { prompt: 0.5, completion: 2.5 },
+                preferred_min_throughput: { p50: 60, p90: 30 },
+                preferred_max_latency: { p50: 1.5, p90: 3 },
+              },
+            },
+          },
+        },
+      }),
+    );
+    // Endpoint percentiles per model: throughput tokens/sec, latency ms
+    // (the units the real API reports).
+    const endpointStats = {
+      "fast/one": [{ throughput_last_30m: { p50: 120, p75: 100, p90: 80, p99: 60 }, latency_last_30m: { p50: 800, p75: 1000, p90: 1200, p99: 2000 } }],
+      "slow/one": [{ throughput_last_30m: { p50: 20, p90: 12 }, latency_last_30m: { p50: 400, p90: 700 } }],
+      "slowstart/one": [{ throughput_last_30m: { p50: 100, p90: 70 }, latency_last_30m: { p50: 2500, p90: 4000 } }],
+      "nostats/one": [{ throughput_last_30m: null, latency_last_30m: null }],
+      "partial/one": [{ throughput_last_30m: { p50: 100, p90: 70 }, latency_last_30m: null }],
+    };
+    const requested = [];
+    const statsServer = createServer((req, res) => {
+      const match = /^\/api\/v1\/models\/(.+)\/endpoints$/.exec(req.url ?? "");
+      requested.push(match ? match[1] : req.url);
+      const modelID = match?.[1];
+      const endpoints = modelID !== undefined ? endpointStats[modelID] : undefined;
+      // Hold the response so the price-only phase is observable before the
+      // async stats pass settles the catalog.
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(endpoints ? { data: { endpoints } } : { data: { endpoints: [] } }));
+      }, 250);
+    });
+    await new Promise((resolve) => statsServer.listen(0, "127.0.0.1", resolve));
+    // The host drops `cost` from config-seeded models (published as []), so a
+    // pre-transform shaper writes the price tiers into the catalog draft —
+    // the same pattern the capability shapers use above.
+    const costSeed = {
+      "fast/one": [{ input: 0.2, output: 1.0, cache: { read: 0, write: 0 } }],
+      "slow/one": [{ input: 0.3, output: 1.5, cache: { read: 0, write: 0 } }],
+      "slowstart/one": [{ input: 0.2, output: 1.0, cache: { read: 0, write: 0 } }],
+      "nostats/one": [{ input: 0.3, output: 1.0, cache: { read: 0, write: 0 } }],
+      "partial/one": [{ input: 0.2, output: 1.0, cache: { read: 0, write: 0 } }],
+      "pricey/one": [{ input: 2.0, output: 8.0, cache: { read: 0, write: 0 } }],
+    };
+    const seedCost = (editor) => {
+      for (const [modelID, cost] of Object.entries(costSeed)) {
+        editor.update("e2erouted", modelID, (model) => {
+          model.cost = cost;
+        });
+      }
+    };
+    const mk = (name) => ({
+      name,
+      capabilities: { tools: true, input: ["text"], output: ["text"] },
+      limit: { context: 128000, output: 8192 },
+    });
+    try {
+      const result = await withHost(
+        { routing: { configFile, statsBaseUrl: `http://127.0.0.1:${statsServer.address().port}/api/v1` } },
+        {
+          provider: {
+            ...providerConfig(),
+            e2erouted: {
+              name: "E2E Routed",
+              npm: "@ai-sdk/openai-compatible",
+              options: { apiKey: "e2e-key", baseURL: "http://127.0.0.1:1/v1" },
+              models: {
+                "fast/one": mk("Fast One"),
+                "slow/one": mk("Slow One"),
+                "slowstart/one": mk("Slow Start"),
+                "nostats/one": mk("No Stats"),
+                "partial/one": mk("Partial"),
+                "pricey/one": mk("Pricey One"),
+              },
+            },
+          },
+        },
+        async (app) => {
+          // First read: catalog visible, stats not yet fetched (price-only view).
+          const first = await ids(app, "e2erouted");
+          // Poll until the async stats pass has re-filtered the catalog.
+          const settled = ["fast/one", "nostats/one", "partial/one"];
+          let last = first;
+          for (let i = 0; i < 100; i++) {
+            last = await ids(app, "e2erouted");
+            if (JSON.stringify(last) === JSON.stringify(settled)) break;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          return [first, last, requested.some((id) => id === "pricey/one")];
+        },
+        [seedCost],
+      );
+      // Before stats: only the price gate has acted. After: throughput and
+      // latency cutoffs applied; pricey/one never reached the stats server.
+      return [
+        result[0],
+        result[1],
+        result[2],
+      ];
+    } finally {
+      statsServer.close();
+      rmSync(configFile, { force: true });
+    }
+  })(),
+  [
+    // first: price gate only — pricey hidden, perf models still visible
+    ["fast/one", "nostats/one", "partial/one", "slow/one", "slowstart/one"],
+    // settled: no endpoint meets the cutoffs for slow/slowstart
+    ["fast/one", "nostats/one", "partial/one"],
+    // price-hidden models are never fetched from the stats API
+    false,
+  ],
+);
+
 console.log(failures === 0 ? "\nE2E: ALL PASS" : `\nE2E: ${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

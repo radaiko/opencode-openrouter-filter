@@ -15,6 +15,12 @@ export interface DefaultModelRef {
 export interface ApplyInput {
   readonly listProviders: () => readonly ProviderCatalog[];
   readonly getDefault: () => DefaultModelRef | undefined;
+  /**
+   * Routing verdict from the provider-settings filter: a reason string hides
+   * the model, undefined keeps it. Applied after the rule chain, so a model
+   * must pass both.
+   */
+  readonly routingFor?: (providerID: string, model: FilterableModel) => string | undefined;
 }
 
 export interface FilterRun {
@@ -129,6 +135,48 @@ export function applyFilter(config: ValidatedConfig, input: ApplyInput): FilterR
 
   if (config.defaults) consider(config.defaults);
   for (const rule of config.rules) consider(rule);
+
+  // Routing (provider-settings) pass: independent of the rules, so a provider
+  // with routing cutoffs but no filter rule still gets filtered. Same safety
+  // rails: never hide the catalog default, never empty a provider outright.
+  if (input.routingFor) {
+    for (const catalog of providers) {
+      const already = removals.get(catalog.providerID) ?? [];
+      const gone = new Set(already);
+      const remove: string[] = [];
+      let keptDefault = false;
+      for (const model of catalog.models) {
+        if (model.enabled === false || gone.has(model.id)) continue;
+        const reason = input.routingFor(catalog.providerID, model);
+        if (!reason) continue;
+        const isDefault =
+          defaultRef !== undefined &&
+          defaultRef.providerID === catalog.providerID &&
+          defaultRef.modelID === model.id;
+        if (isDefault) {
+          keptDefault = true;
+          continue;
+        }
+        gone.add(model.id);
+        remove.push(model.id);
+      }
+      if (remove.length > 0 && gone.size >= catalog.models.length && !keptDefault) {
+        warnings.push(
+          `routing settings for provider "${catalog.providerID}" would remove all ` +
+            `${catalog.models.length} models; nothing was removed by routing`,
+        );
+        continue;
+      }
+      if (keptDefault && remove.length + already.length + 1 >= catalog.models.length) {
+        warnings.push(
+          `routing settings for provider "${catalog.providerID}" left only the default model visible`,
+        );
+      }
+      if (remove.length > 0) {
+        removals.set(catalog.providerID, [...new Set([...already, ...remove])]);
+      }
+    }
+  }
 
   for (const [pattern, used] of includeUsage) {
     if (used === 0) {

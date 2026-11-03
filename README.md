@@ -65,6 +65,59 @@ substring matches.
 
 Unstated capability counts as **no**: a preset only keeps what it can confirm.
 
+### Routing filter (provider settings)
+
+If your OpenCode config already tells OpenRouter how to route — e.g.
+
+```json
+"providers": {
+  "openrouter": {
+    "body": {
+      "provider": {
+        "max_price": { "prompt": 0.5, "completion": 2.5 },
+        "preferred_min_throughput": { "p50": 60, "p90": 30 },
+        "preferred_max_latency": { "p50": 1.5, "p90": 3 }
+      }
+    }
+  }
+}
+```
+
+then enabling `routing` hides catalog models that could never satisfy those
+settings, so the picker matches what you actually get routed to:
+
+- `max_price` (USD per million tokens) is a hard gate against the catalog
+  price tiers; a model survives if any tier fits.
+- `preferred_min_throughput` (tokens/sec) and `preferred_max_latency`
+  (seconds; a bare number means p50) are judged against OpenRouter's
+  per-endpoint percentile stats (`throughput_last_30m` /
+  `latency_last_30m`). A model survives if **any** endpoint meets **all**
+  specified cutoffs.
+
+Stats come from `GET {statsBaseUrl}/models/{author}/{slug}/endpoints`, the
+same API the OpenRouter site uses. That API returns real percentiles only
+when authenticated, so set `routing.apiKey` (or export `OPENROUTER_API_KEY`);
+without a key — or whenever stats are missing or the request fails — models
+are **kept**, never hidden on absent data. Stats are fetched in the
+background after startup (bounded concurrency, cached for `statsTtlMs`), then
+the catalog reloads and re-filters; price-ho models are hidden immediately
+and never fetched. Routing hides obey the same safety rails as rules: the
+default model survives and a provider is never emptied outright.
+
+```jsonc
+"plugins": [{ "package": "opencode-openrouter-filter", "options": {
+  "rules": [ /* ... */ ],
+  "routing": {
+    // optional; cutoffs are auto-discovered from your opencode config files
+    // "configFile": "/path/to/opencode.json",
+    // "providers": { "openrouter": { "max_price": { "prompt": 0.5 } } },
+    "apiKey": "{{ env:OPENROUTER_API_KEY }}",   // optional, for real stats
+    "statsTtlMs": 300000,                        // optional
+    "enabled": true                              // optional kill switch
+  }
+} }]
+```
+
 ### Safety rails
 
 - The catalog's **default model** is never removed unless the rule sets

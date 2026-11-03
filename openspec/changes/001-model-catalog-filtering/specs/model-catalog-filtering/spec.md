@@ -156,3 +156,74 @@ logged as a warning and must not abort catalog assembly.
 #### Scenario: broken host editor is contained
 - **WHEN** the catalog editor throws during a transform
 - **THEN** the error is logged as a warning and the transform returns normally
+
+### Requirement: REQ-MCF-14 Provider-settings discovery
+When the `routing` option block is present and enabled, the plugin SHALL read
+OpenRouter routing cutoffs from the user's OpenCode config at
+`providers.<id>.body.provider`, honouring the wire keys `max_price`,
+`preferred_min_throughput` and `preferred_max_latency`, and SHALL let plugin
+options `routing.providers` override them. Unrelated keys SHALL be ignored;
+malformed cutoffs SHALL deactivate the routing filter with a warning without
+disabling rule-based filtering.
+
+#### Scenario: cutoffs come from the config file
+- **WHEN** a config file contains `providers.openrouter.body.provider.max_price.prompt = 0.5`
+- **THEN** the routing filter for provider `openrouter` enforces a prompt price ceiling of $0.5 per million tokens
+
+#### Scenario: discovery order and overrides
+- **WHEN** cutoffs appear in the global config, `$OPENCODE_CONFIG` and the project `opencode.json`
+- **THEN** later files override earlier ones, camelCase aliases are accepted, and `routing.configFile` restricts discovery to that one file
+
+#### Scenario: junk in the routing block is tolerated, bad cutoffs are not
+- **WHEN** a `body.provider` block contains unknown keys and one malformed cutoff
+- **THEN** the routing filter deactivates with a warning naming the offending field and rule filtering still runs
+
+### Requirement: REQ-MCF-15 Price gate mirrors max_price
+For a provider with routing cutoffs, the plugin SHALL hide every model whose
+catalog `cost` tiers all bust `max_price`, comparing tier `input` against
+`prompt` and tier `output` against `completion` (both USD per million
+tokens); a model is kept when at least one tier fits or when the catalog
+carries no price data for it.
+
+#### Scenario: over-priced model hidden
+- **WHEN** cutoffs set `max_price: {prompt: 0.5, completion: 2.5}` and a model's cheapest tier costs `input 2, output 8`
+- **THEN** that model is hidden by routing
+
+#### Scenario: any fitting tier keeps the model
+- **WHEN** the same cutoffs meet a model with tiers `{input 5, output 20}` and `{input 0.3, output 1}`
+- **THEN** the model is kept
+
+### Requirement: REQ-MCF-16 Throughput and latency cutoffs via endpoint stats
+For a provider with routing cutoffs, when `preferred_min_throughput` or
+`preferred_max_latency` is set the plugin SHALL judge models against
+per-endpoint percentiles from the OpenRouter endpoints API: a model is kept
+when at least one endpoint meets every specified cutoff, and kept whenever no
+measurement contradicts it. The stats fetch SHALL be asynchronous, cached,
+skipped for models already hidden by the price gate, and followed by a
+catalog reload that re-runs filtering.
+
+#### Scenario: cutoff units and semantics
+- **WHEN** throughput cutoffs are tokens per second compared with `>=` and latency cutoffs are seconds compared against reported milliseconds with `<= cutoff × 1000`, a bare number applying to p50
+- **THEN** a model is judged by those comparisons against each endpoint's percentiles
+
+#### Scenario: slow model hidden after stats land
+- **WHEN** cutoffs require `preferred_min_throughput: {p50: 60}` and every endpoint of a model reports p50 of 20 tokens/sec
+- **THEN** the model is visible before the stats fetch and hidden after it completes
+
+#### Scenario: no stats means no hiding
+- **WHEN** the endpoints API returns null percentiles, yields no endpoints, or fails for a model
+- **THEN** the model stays visible
+
+#### Scenario: price-hidden models never hit the stats API
+- **WHEN** a model busts `max_price`
+- **THEN** no endpoint request is made for it
+
+### Requirement: REQ-MCF-17 Routing respects the safety rails
+Routing hides SHALL honour the same protection rails as rule hides: the
+catalog default model is never hidden by routing, and a routing pass that
+would remove every model of a provider is skipped with a warning. Routing
+hides combine with rule removals without double counting.
+
+#### Scenario: default survives routing
+- **WHEN** routing cutoffs reject every model of a provider and one of them is the catalog default
+- **THEN** only the default stays visible and a warning is emitted

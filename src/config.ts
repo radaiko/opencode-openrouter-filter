@@ -20,6 +20,8 @@ export interface FilterConfig {
   disabled?: boolean;
   defaults?: FilterRule;
   rules?: FilterRule[];
+  /** Provider-settings (OpenRouter routing) filter; see routing.ts. */
+  routing?: unknown;
 }
 
 export interface ValidatedRule {

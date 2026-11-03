@@ -16,6 +16,9 @@ New OpenCode V2 plugin `opencode-openrouter-filter`:
 - glob include/exclude rules per provider (`*`, `?`, anchored)
 - named capability presets: `free-only`, `tool-calling`, `vision`, `reasoning`, `active`
 - safety rails: catalog default model protected, all-remove veto, typo warnings
+- routing filter mirroring `providers.<id>.body.provider` from the user's own
+  OpenCode config: `max_price` (catalog cost), `preferred_min_throughput` and
+  `preferred_max_latency` (OpenRouter endpoint percentiles, fetched async)
 - `disabled` kill switch and an `openrouter-filter` status command
 
 ## Impact

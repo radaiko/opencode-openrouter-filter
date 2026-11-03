@@ -45,7 +45,7 @@ export interface FilterableModel {
   };
 }
 
-function costEntries(cost: FilterableModel["cost"]): readonly CostEntry[] | undefined {
+export function costEntries(cost: FilterableModel["cost"]): readonly CostEntry[] | undefined {
   if (cost === undefined) return undefined;
   if (Array.isArray(cost)) return cost as readonly CostEntry[];
   return [cost as CostEntry];
